@@ -132,17 +132,34 @@ def select_liquid_contracts(markets: pd.DataFrame, max_events: int) -> pd.DataFr
 def fetch_market_candlesticks(
     ticker: str, series_ticker: str, start_ts: int, end_ts: int, period_interval: int = 1
 ) -> List[Dict[str, object]]:
-    params = {
-        "start_ts": start_ts,
-        "end_ts": end_ts,
-        "period_interval": period_interval,
-    }
-    payload = request_json(
-        f"{KALSHI_BASE}/series/{series_ticker}/markets/{ticker}/candlesticks",
-        params=params,
-        timeout=45,
-    )
-    return payload.get("candlesticks", [])
+    # API cap: max 5000 candlesticks per request.
+    # At 1-minute intervals, split long windows into <=4800-minute chunks.
+    max_minutes = 4800
+    step = max_minutes * 60 * period_interval
+    all_rows: List[Dict[str, object]] = []
+
+    cursor = start_ts
+    while cursor < end_ts:
+        chunk_end = min(cursor + step, end_ts)
+        params = {
+            "start_ts": cursor,
+            "end_ts": chunk_end,
+            "period_interval": period_interval,
+        }
+        payload = request_json(
+            f"{KALSHI_BASE}/series/{series_ticker}/markets/{ticker}/candlesticks",
+            params=params,
+            timeout=45,
+        )
+        all_rows.extend(payload.get("candlesticks", []))
+        cursor = chunk_end + 60 * period_interval
+        time.sleep(0.03)
+
+    # Remove any duplicate timestamps from overlapping/inclusive boundaries.
+    dedup: Dict[int, Dict[str, object]] = {}
+    for row in all_rows:
+        dedup[int(row["end_period_ts"])] = row
+    return [dedup[k] for k in sorted(dedup)]
 
 
 def build_market_minute_frame(chosen_markets: pd.DataFrame, series_ticker: str = SERIES_TICKER) -> pd.DataFrame:
