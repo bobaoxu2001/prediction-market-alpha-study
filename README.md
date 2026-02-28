@@ -9,6 +9,19 @@ This is a feasibility and market-structure validation project, not a production 
 
 ---
 
+## Executive Summary (1-minute read)
+
+- **Question:** Can simple, statistically grounded signals in Kalshi hourly BTC contracts be traded profitably after realistic frictions?
+- **Approach:** Validate market structure and data availability, then run walk-forward out-of-sample baselines with spread/slippage/fee costs included.
+- **Data used:** 35,687 settled markets scanned, 360 liquid markets selected, 51,445 Kalshi minute rows, 29,414 BTC proxy minute rows, 50,666 model-ready rows.
+- **Key finding:** Statistical relationships exist, but they are too small relative to execution costs at the tested short horizon.
+- **Cost reality:** Break-even win rates in tested scenarios were all above 100%, indicating a structural economic hurdle.
+- **Model outcome:** Logistic, momentum, and volatility-regime baselines were all negative out-of-sample after costs.
+- **Decision:** **NO-GO** for the tested setup.
+- **Most likely next direction (if continuing):** longer holding horizons, relative-value/cross-strike structure, and better execution/fill modeling.
+
+---
+
 ## TL;DR
 
 - A complete end-to-end pipeline was implemented in `analysis/kalshi_btc_feasibility.py`.
