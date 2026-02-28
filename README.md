@@ -2,174 +2,224 @@
 
 This repository contains a **structural feasibility study** for trading Kalshi hourly Bitcoin contracts (`KXBTCD`).
 
-The goal is not to build a complex alpha model, but to answer a practical question:
-> Is there statistically meaningful and economically tradable edge after realistic costs?
+The objective was deliberately narrow:
+> Determine whether simple, out-of-sample signals can survive realistic execution costs in Kalshi hourly BTC markets.
+
+This is a feasibility and market-structure validation project, not a production alpha system.
 
 ---
 
-## What this project does
+## TL;DR
 
-The script `analysis/kalshi_btc_feasibility.py` runs an end-to-end pipeline:
-
-1. Pulls Kalshi market structure metadata (series rules, settlement source, tick size, fee type).
-2. Pulls settled `KXBTCD` markets and minute-level Kalshi candlesticks.
-3. Pulls BTC 1-minute proxy data from Coinbase (`BTC-USD`).
-4. Builds simple baseline features (momentum, volatility regime, lag checks).
-5. Runs walk-forward out-of-sample tests with transaction costs.
-6. Produces a structured feasibility report + machine-readable metrics.
+- A complete end-to-end pipeline was implemented in `analysis/kalshi_btc_feasibility.py`.
+- Market structure and data access were validated from live APIs and contract documents.
+- Baseline models were tested with walk-forward validation and transaction costs.
+- **Final conclusion: NO-GO under the tested short-horizon execution setup.**
+- Main reason: **execution frictions (spread + slippage + fees) dominate expected edge**.
 
 ---
 
-## Key outputs
+## What was completed
 
-- `reports/feasibility_report.md`  
-  Human-readable final report (market structure, data feasibility, costs, baseline performance, risk, recommendation).
+The following work was done in this repository:
 
-- `data/processed/feasibility_results.json`  
-  Raw metrics and assumptions used in the report.
+1. **Market structure validation**
+   - Queried Kalshi series/market metadata for `KXBTCD`.
+   - Verified settlement source, tick size, fee type, and position-limit text.
+   - Confirmed maker/taker fee fields exist in API models.
 
-- `data/processed/market_minute_data.csv` *(generated locally when running the script; usually not committed)*  
-  Intermediate minute-level market dataset.
+2. **Data feasibility validation**
+   - Pulled settled hourly BTC contracts.
+   - Pulled minute-level Kalshi market candlesticks.
+   - Pulled minute-level BTC reference candles from Coinbase.
+   - Confirmed what is and is not available publicly (e.g., no robust public historical full-depth order book snapshots).
 
----
+3. **Cost-aware baseline testing**
+   - Built simple features (momentum, volatility regime, lag structure).
+   - Implemented walk-forward out-of-sample evaluation.
+   - Included transaction costs (spread, slippage, round-trip fees).
+   - Measured PnL, win rate, Sharpe, drawdown, and break-even requirements.
 
-## What useful result came out?
-
-**Yes — a concrete decision came out: current setup is NO-GO.**
-
-From the generated results in this repo:
-
-- Data is usable for baseline research (historical settled markets + minute candles are available).
-- But under realistic short-horizon execution assumptions, break-even win rates were above 100% in tested scenarios (structural cost hurdle).
-- Baseline OOS models (logistic / momentum / vol-regime) were all negative after costs.
-
-So this produced a useful output: **not just code, but a falsifiable go/no-go conclusion with evidence**.
-
----
-
-## Module-by-module review (逐模块复盘 + 改进建议)
-
-Below is a direct review of each study module, including what worked, what can be improved, and what currently blocks viability.
-
-### Phase 1 - Market Structure Analysis
-
-**Current status**
-- Contract structure, settlement source, tick size, and API fields are verified from live Kalshi API + contract docs.
-- Maker/taker distinction is confirmed at API model level (`maker_fees`, `taker_fees` fields).
-
-**Can improve**
-- Add an automated daily snapshot job for `rules_primary`, tick size, fee type, and position limits to detect rule drift.
-- Parse and archive fee schedule details in a machine-readable form once accessible.
-
-**Constraint / risk**
-- Documentation drift exists (older filing text vs current live rule text).
-- Fee schedule PDF may be temporarily blocked by anti-bot checks from cloud environments.
+4. **Deliverables generated**
+   - Human-readable report: `reports/feasibility_report.md`
+   - Machine-readable metrics: `data/processed/feasibility_results.json`
+   - Optional intermediate dataset (local): `data/processed/market_minute_data.csv`
 
 ---
 
-### Phase 2 - Data Feasibility
+## Data used
 
-**Current status**
-- Study used large sample slices (e.g., settled markets, minute-level candles, joined BTC minute proxy).
-- Public data is enough for baseline validation.
+### Primary market data (Kalshi)
 
-**Can improve**
-- Replace Coinbase proxy with direct settlement-aligned source (BRTI or closest available feed) to reduce basis mismatch.
-- Add authenticated historical fills/orders if account permissions are available.
+- API base: `https://api.elections.kalshi.com/trade-api/v2`
+- Series: `KXBTCD` (hourly Bitcoin above/below contracts)
+- Data pulled:
+  - Market metadata
+  - Settled markets
+  - Minute candlesticks (`period_interval=1`)
+  - Top-of-book quotes (via candlestick bid/ask fields)
 
-**Constraint / risk**
-- No reliable public historical full-depth orderbook snapshots for queue modeling.
-- Without queue + fill-probability history, maker-execution backtests are incomplete.
+### External BTC reference data
 
----
+- Source: Coinbase `BTC-USD` candles
+- Endpoint family: `https://api.exchange.coinbase.com/products/BTC-USD/candles`
+- Granularity: 1 minute
 
-### Phase 3 - Transaction Cost Modeling
+### Data volume in this run
 
-**Current status**
-- Costs include spread + slippage + round-trip fee assumptions.
-- Break-even table shows severe cost pressure.
+From `data/processed/feasibility_results.json`:
 
-**Can improve**
-- Add scenario grid by holding period (1m/5m/15m/30m) instead of only next-minute exits.
-- Split taker-only vs maker-first execution assumptions.
+- Settled markets considered: **35,687**
+- Markets selected for modeling: **360** (one liquid strike per event hour)
+- Kalshi minute rows: **51,445**
+- Coinbase minute rows: **29,414**
+- Model-ready rows after joins/filters: **50,666**
 
-**Constraint / primary bottleneck**
-- In current short-horizon taker-style assumptions, break-even win rates are above 100% in tested scenarios.
-- This is the main blocker: **costs are larger than expected edge magnitude**.
+### Data availability summary
 
----
-
-### Phase 4 - Baseline Signal Testing
-
-**Current status**
-- Walk-forward OOS tests were implemented with no look-ahead.
-- Logistic/momentum/vol-regime baselines all negative after costs.
-
-**Can improve**
-- Add confidence gating (trade only when expected move > cost hurdle).
-- Add event-time features (time-to-close) and cross-strike context features.
-
-**Constraint / risk**
-- Statistical correlation exists, but monetizable edge is weak once costs are applied.
-- H3 indicates strongest relation at lag 0, so delayed-reaction alpha is limited.
+- Historical contract prices: **Available**
+- Minute-level history: **Available**
+- Trade volume: **Available**
+- Live order book snapshot: **Available**
+- Public historical full-depth order book archive: **Not reliably available**
 
 ---
 
-### Phase 5 - Risk & Scalability
+## Methodology
 
-**Current status**
-- Key risks identified: liquidity concentration, slippage sensitivity, regime dependence, tail risk near close.
+### 1) Market structure checks
 
-**Can improve**
-- Add explicit capacity simulation by hour/strike/liquidity buckets.
-- Stress-test with wider slippage tails and quote-gap events.
+Validated:
+- Contract type and payout framing
+- Settlement source (CF Benchmarks/BRTI)
+- Tick size (`0.01` dollars per contract tick)
+- Series fee type (`quadratic`, multiplier `1`)
+- Position-limit language from contract terms
 
-**Constraint / risk**
-- Capacity is likely limited to the most liquid strikes/hours.
-- Binary payout + near-close gaps create non-linear downside if exits fail.
+### 2) Dataset construction
+
+- Pulled recent settled `KXBTCD` markets.
+- Selected one high-volume contract per event hour (to avoid mixing many illiquid strikes).
+- Pulled minute candlesticks for each selected contract.
+- Derived minute mid-price, spread, and next-minute drift target.
+- Joined with BTC minute returns and volatility features.
+
+### 3) Features and hypotheses
+
+Tested only simple hypotheses:
+
+- **H1:** BTC short-term momentum predicts Kalshi probability drift.
+- **H2:** High-volatility regimes increase directional predictability.
+- **H3:** Kalshi reacts to BTC with a measurable lag.
+
+Baseline features included:
+- 1m BTC return
+- 5m BTC momentum
+- 15m BTC momentum
+- 15m BTC realized volatility
+- 1m market return
+
+### 4) Modeling and validation
+
+- Baseline models:
+  - Logistic regression
+  - Sign-based momentum
+  - Volatility-regime momentum filter
+- Validation:
+  - Walk-forward time splits
+  - Out-of-sample evaluation only for reported trading metrics
+  - No look-ahead in feature/target construction
+
+### 5) Transaction-cost modeling
+
+PnL includes:
+- Entry/exit through top-of-book bid/ask
+- Slippage assumptions (1-2 ticks per side)
+- Round-trip fee assumptions (scenario grid)
+
+Break-even win-rate analysis computes required hit rate under each cost scenario.
 
 ---
 
-## If final conclusion is NO-GO, where is the bottleneck?
+## Problems encountered (and how they were handled)
 
-### Core bottleneck stack (from strongest to weaker)
-1. **Microstructure cost wall (strongest):** spread + slippage + fee dominate next-minute expected move.
-2. **Execution realism gap:** no queue-level historical depth => cannot validate maker alpha robustly.
-3. **Low exploitable lag:** reaction appears mostly contemporaneous, leaving little clean delay edge.
-4. **Proxy mismatch risk:** settlement uses BRTI while baseline used Coinbase BTC candles.
+1. **Kalshi candlestick API limit**
+   - Problem: API rejects large windows (`max candlesticks: 5000`).
+   - Fix: Implemented chunked minute-range requests and deduplication.
 
-In short: **not “no signal at all”, but “signal too small vs execution frictions.”**
+2. **Fee schedule access friction**
+   - Problem: Direct access to Kalshi fee schedule PDF returned anti-bot checkpoint (HTTP 429).
+   - Fix: Used API fee type/multiplier fields and model-level maker/taker fields; treated numerical fee schedule as partially constrained in this environment and used explicit scenario costs.
 
----
+3. **Documentation drift**
+   - Problem: Older filing text and current live market rule text are not always identical.
+   - Fix: Prioritized live market-specific `rules_primary` and current API metadata for trading interpretation.
 
-## Possible direction changes (换方向建议)
+4. **Underlying price proxy mismatch**
+   - Problem: Settlement references BRTI while model features used Coinbase BTC candles.
+   - Fix: Flagged as basis-risk limitation in conclusions.
 
-If continuing research, prioritize these pivots:
-
-1. **Longer holding horizons first**  
-   Re-test 5m/15m/30m exits; require expected move to exceed full cost hurdle before entry.
-
-2. **Relative-value over directional trading**  
-   Focus on cross-strike/event-curve inconsistencies (monotonic/no-arbitrage checks), not raw BTC direction.
-
-3. **Maker-first execution research**  
-   Only if historical fills/orders or live paper execution logs are available to estimate fill probability.
-
-4. **Settlement-window specialization**  
-   Build features around time-to-close and settlement mechanics (with settlement-aligned price feed).
-
-5. **Market-selection filter**  
-   Trade only high-liquidity slices with tighter spread and proven stable post-cost edge.
+5. **Microstructure realism gap**
+   - Problem: No robust public historical queue-depth archive for exact maker fill simulation.
+   - Fix: Kept baseline conservative and cost-heavy; explicitly flagged limitation.
 
 ---
 
-## Recommended go/no-go gates for next iteration
+## Results
 
-Do not move to production unless all are met:
-- Cost-adjusted break-even win rate falls into feasible range (practically <=55%-60% for chosen setup).
-- OOS Sharpe remains positive and stable across walk-forward windows.
-- Positive returns in most subperiods (not one lucky regime).
-- Capacity/slippage stress tests remain profitable under adverse assumptions.
+### Hypothesis diagnostics
+
+- **H1 (momentum -> probability drift):** positive correlation (`~0.2468`, statistically strong)
+- **H2 (volatility clustering improves predictability):** very small difference between high- and low-vol regimes
+- **H3 (reaction lag):** strongest relation at lag `0` minute (little exploitable delayed reaction)
+
+### Cost sensitivity (break-even)
+
+In tested short-horizon scenarios, break-even win rates were all above 100%:
+
+- 1c fee, 1 tick/side slippage: **125.21%**
+- 2c fee, 1 tick/side slippage: **139.57%**
+- 2c fee, 2 ticks/side slippage: **168.28%**
+- 4c fee, 2 ticks/side slippage: **196.99%**
+
+Interpretation: at this horizon and execution style, costs are too high relative to expected move size.
+
+### Out-of-sample baseline performance (cost-adjusted)
+
+- **Logistic:** 17,150 trades, win rate 13.70%, total return -600.80, Sharpe -32.71
+- **Momentum:** 18,828 trades, win rate 10.63%, total return -846.52, Sharpe -36.79
+- **Vol-regime:** 8,194 trades, win rate 12.90%, total return -352.05, Sharpe -27.75
+
+All tested baselines were strongly negative after costs.
+
+### Final decision
+
+**NO-GO for the tested setup.**
+
+This is not "no statistical relationship exists"; it is "relationship is not economically tradable after realistic frictions."
+
+---
+
+## Main bottlenecks
+
+From strongest to weaker:
+
+1. **Cost wall**: spread + slippage + fees exceed expected short-horizon edge.
+2. **Execution realism gap**: limited historical queue-depth/fill-probability data.
+3. **Low lag opportunity**: reaction appears mostly contemporaneous.
+4. **Proxy risk**: settlement source differs from external BTC proxy feed.
+
+---
+
+## Suggested direction changes
+
+If research continues, prioritize:
+
+1. **Longer holding periods** (e.g., 5m/15m/30m exits)
+2. **Relative-value structures** across strikes/events rather than pure direction
+3. **Maker-first studies** only with real fill logs or authenticated historical order/fill data
+4. **Time-to-close / settlement-window features**
+5. **Strict market-selection filters** for liquidity/spread quality
 
 ---
 
@@ -179,18 +229,24 @@ Do not move to production unless all are met:
 python3 analysis/kalshi_btc_feasibility.py
 ```
 
----
+Generated files:
 
-## Data sources
-
-- Kalshi public API: `https://api.elections.kalshi.com/trade-api/v2`
-- Kalshi docs: `https://docs.kalshi.com/`
-- BTC proxy market data: Coinbase `BTC-USD` candles
+- `reports/feasibility_report.md`
+- `data/processed/feasibility_results.json`
+- `data/processed/market_minute_data.csv` (local intermediate output)
 
 ---
 
-## Notes and caveats
+## Repository map
 
-- The study is intentionally skeptical and prioritizes avoiding false positives.
-- This is a feasibility validation, not a production strategy.
-- Historical full-depth orderbook snapshots are not publicly exposed in the same way as top-of-book/candlestick data, which limits microstructure realism.
+- `analysis/kalshi_btc_feasibility.py` - end-to-end study pipeline
+- `reports/feasibility_report.md` - structured human-readable report
+- `data/processed/feasibility_results.json` - numeric outputs and assumptions
+
+---
+
+## Scope and caveats
+
+- This is a feasibility study, not a production strategy.
+- It intentionally uses simple baselines to avoid overfitting and false confidence.
+- Conclusions are conditional on current data access and execution assumptions.
